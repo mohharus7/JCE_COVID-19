@@ -22,7 +22,7 @@ library(tibble)
 
 # 3. Define the working directory and annotated VCF files
 setwd("C:/Users/mohha/OneDrive/Documents")
-vcf_files <- c("SnpEffJPN.vcf", "SnpEffCHN.vcf", "SnpEffGMN.vcf", "SnpEffUSA.vcf", "SnpEffUK.vcf")
+vcf_files <- c("JPN.vcf", "CHN.vcf", "GMN.vcf", "USA.vcf", "UK.vcf")
 
 # 4. Define a Function to Process Each VCF
 #Reads the VCF
