@@ -1,0 +1,107 @@
+# =======================================================
+# Complete R workflow for summarizing SnpEff-annotated SARS-CoV-2 VCF files
+# Samples: CHN, GMN, JPN, UK, USA
+# Working directory used in the original analysis:
+# C:/Users/mohha/OneDrive/Documents
+# ========================================================
+
+# 1. Install packages once
+install.packages(c("vcfR", "dplyr", "tidyr", "purrr", "stringr",
+                   "ggplot2", "pheatmap", "readr", "tibble"))
+
+# 2. Load packages
+library(vcfR)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(ggplot2)
+library(pheatmap)
+library(readr)
+library(tibble)
+
+# 3. Define the working directory and annotated VCF files
+setwd("C:/Users/mohha/OneDrive/Documents")
+vcf_files <- c("SnpEffJPN.vcf", "SnpEffCHN.vcf", "SnpEffGMN.vcf", "SnpEffUSA.vcf", "SnpEffUK.vcf")
+
+# 4. Define a Function to Process Each VCF
+#Reads the VCF
+process_vcf <- function(file_path) {
+  vcf <- read.vcfR(file_path)
+  
+  # Try to extract ANN field safely
+  info <- tryCatch({
+    extract_info_tidy(vcf, info_fields = "ANN")
+  }, error = function(e) {
+    message("Failed to extract ANN for ", file_path)
+    return(data.frame())  # Return empty data frame if failed
+  })
+  
+  # Add sample label from filename
+  info$Sample <- str_remove(basename(file_path), ".vcf")
+  return(info)
+}
+
+# 5. Process all files and combine the result
+all_info <- map_dfr(vcf_files, process_vcf)
+
+# 6. Split the ANN field into SnpEff columns
+all_info_split <- all_info %>%
+  separate_rows(ANN, sep = ",") %>%
+  separate(ANN, into = c("Allele", "Annotation", "Annotation_Impact", "Gene_Name", 
+                         "Gene_ID", "Feature_Type", "Feature_ID", "Transcript_BioType", 
+                         "Rank", "HGVS.c", "HGVS.p", "cDNA.pos", "CDS.pos", "AA.pos", 
+                         "Distance", "Warnings"),
+           sep = "\\|", fill = "right", extra = "merge")
+
+# 7. Check the parsed output
+print(colnames(all_info_split))
+
+# 8. Summarize Effects and Impacts
+effect_summary <- all_info_split %>%
+  group_by(Sample, Annotation) %>%
+  summarise(Count = n(), .groups = "drop")
+impact_summary <- all_info_split %>%
+  group_by(Sample, Annotation_Impact) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# 9. Plotting
+# Variant effect types
+ggplot(effect_summary, aes(x = reorder(Annotation, -Count), y = Count, fill = Sample)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "SnpEff Variant Effects by Sample", x = "Effect Type", y = "Count")
+
+# Variant impact levels
+ggplot(impact_summary, aes(x = Annotation_Impact, y = Count, fill = Sample)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(title = "SnpEff Impact Levels by Sample", x = "Impact Level", y = "Count")
+
+# 10. Generate Per-Gene Mutation Summaries
+# Group by Sample and Gene_Name
+gene_summary <- all_info_split %>%
+  filter(!is.na(Gene_Name)) %>%
+  group_by(Sample, Gene_Name) %>%
+  summarise(Variant_Count = n(), .groups = "drop")
+# Pivot into table
+gene_wide <- gene_summary %>%
+  pivot_wider(names_from = Sample, values_from = Variant_Count, values_fill = 0)
+# View the raw table
+print(gene_wide)
+# Export into CSV file
+write.csv(gene_wide, "per_gene_variant_matrix.csv", row.names = FALSE)
+
+# 11. Create Cluster Heatmap of Mutation Profiles
+# Turn into matrix
+heat_matrix <- as.data.frame(gene_wide)
+rownames(heat_matrix) <- heat_matrix$Gene_Name
+heat_matrix$Gene_Name <- NULL
+# Plot heatmap
+pheatmap(as.matrix(heat_matrix), 
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE, 
+         main = "Mutation Load per Gene Across Samples")
+
+
